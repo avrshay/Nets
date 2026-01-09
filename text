@@ -1,0 +1,72 @@
+    def play(self, conn):
+        """
+                Manages the main game loop for a specific client connection.
+
+                Responsibilities:
+                1. Initializes the deck and deals initial cards.
+                2. Sends initial game state to the player.
+                3. Waits for player actions (Hit/Stand) via the protocol.
+                4. Executes dealer logic.
+                5. Determines the winner and sends the result.
+
+                Args:
+                    conn (socket.socket): The active TCP socket for communication.
+        """
+        # Initial Deal - round 0:
+        self.deck = Deck()
+        self.deck.shuffle()
+
+        player_hand = []
+
+        player_hand.append(self.deck.deal_one())
+        self.dealer_hand.append(self.deck.deal_one())  # The player will see it
+        player_hand.append(self.deck.deal_one())
+        self.dealer_hand.append(self.deck.deal_one())  # The player cannot see it
+
+        if self.current_dealer_sum() > 21:
+            pass  # צריך להמשיך כאן
+
+        while True:
+
+            # (Hittt / Stand)
+            try:
+                # checking fo new msg:
+                new_header = conn.recv(5)
+
+                if not new_header:
+                    print(f"Failed.")
+                    break
+
+                cookie, m_type = struct.unpack('!I B', new_header)
+
+                # Check the Magic Cookie:
+                if cookie != MAGIC_COOKIE:
+                    print(f"Invalid Cookie: {hex(cookie)}. Kicking player out!")
+                    return
+
+                if m_type == MSG_TYPE_PAYLOAD:
+
+                    decision_data = conn.recv(5)
+
+                    move = struct.unpack('!5s', decision_data)[0].decode('utf-8')
+
+                    print(f"Player Move: {move}")
+
+                    if move == "Stand":
+
+                        # דילר משחק, מחשבים מנצח, שולחים תוצאה ויוצאים מהלולאה (לסיבוב הבא)
+
+                        break
+
+                    elif move == "Hittt":
+
+                        # דילר שולח עוד קלף וחוזרים לתחילת הלולאה
+
+                        pass
+
+                else:
+                    print("Failed 1")
+
+            except Exception as e:
+                print(e)
+                break
