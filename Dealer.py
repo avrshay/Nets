@@ -127,7 +127,9 @@ class Dealer:
 
                     # step 4?
                     print("Welcome to the Game!")
-                    self.play(conn)
+                    for round in range(1,rounds+1):
+                        print(f"---Round {round}---")
+                        self.play(conn)
 
                 else:
                     print(f"Unknown message type: {msg_type}")
@@ -174,8 +176,8 @@ class Dealer:
         player_hand.append(self.deck.deal_one())
         self.dealer_hand.append(self.deck.deal_one())  # The player cannot see it
 
-        if self.current_dealer_sum() > 21:
-            pass  # צריך להמשיך כאן
+        #if self.current_dealer_sum() > 21:
+        #    pass  # זה לא אמור להחשף עד תורו
 
         while True:
 
