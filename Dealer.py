@@ -149,6 +149,16 @@ class Dealer:
             total_sum += card.get_value()
         return total_sum
 
+    def all_recv(self,sock, n):
+        data = b''
+        while len(data) < n:
+            more = sock.recv(n - len(data))
+            if not more:
+                print("Connection closed before receiving full data")
+                return
+            data += more
+        return data
+
     def send_payload_card(self, conn, result, card):
         """
         result: 0x0 / 0x1 / 0x2 / 0x3
@@ -160,7 +170,7 @@ class Dealer:
             MSG_TYPE_PAYLOAD,
             result,
             card.rank,
-            card.suit - 1
+            card.suit
         )
         conn.sendall(packet)
 
@@ -172,6 +182,8 @@ class Dealer:
             result
         )
         conn.sendall(packet)
+
+
 
     def play(self, conn,rounds):
         """
@@ -189,7 +201,7 @@ class Dealer:
         """
 
         #Statistics
-        stats = {
+        statistics = {
             "wins": 0,
             "losses": 0,
             "ties": 0
@@ -225,7 +237,7 @@ class Dealer:
                 # (Hittt / Stand)
                 try:
                     # checking fo new msg:
-                    new_header = conn.recv(5)
+                    new_header = self.all_recv(conn,5)
 
                     if not new_header:
                         print(f"Failed.")
@@ -240,7 +252,7 @@ class Dealer:
 
                     if m_type == MSG_TYPE_PAYLOAD:
 
-                        decision_data = conn.recv(5)
+                        decision_data = self.all_recv(conn,5)
 
                         move = struct.unpack('!5s', decision_data)[0].decode('utf-8').strip()
 
@@ -256,10 +268,8 @@ class Dealer:
                             self.send_payload_card(conn, 0x0,new_card)
                             print(f"Player received: {new_card.print_card()} , Total: {player_total}")
                             if player_total > 21:
-                                print("Player busts! Dealer wins this round")
-                                self.send_payload_result(conn, 0x2) #player loss
-                                stats["losses"] += 1
                                 break
+
 
                     else:
                         print("Failed 1")
@@ -268,6 +278,12 @@ class Dealer:
                     print(f"Error during player's turn: {e}")
                     return
 
+            time.sleep(2)
+            if player_total > 21:
+                print("Player busts! Dealer wins this round")
+                self.send_payload_result(conn, 0x2)  # player loss
+                statistics["losses"] += 1
+                continue
             #dealer
             self.send_payload_card(conn,0x0,self.dealer_hand[1])
             print(f"Dealer second hidden card: {self.dealer_hand[1].print_card()}")
@@ -284,27 +300,27 @@ class Dealer:
             if dealer_total > 21:
                 result = 0x3
                 print("Result: Dealer busts, player wins.")
-                stats["wins"] += 1
+                statistics["wins"] += 1
             else:
                 if player_total > dealer_total:
                     result = 0x3
                     print("Result: Player has higher total, wins.")
-                    stats["wins"] += 1
+                    statistics["wins"] += 1
                 elif dealer_total > player_total:
                     result = 0x2
                     print("Result: Dealer has higher total, player loses.")
-                    stats["losses"] += 1
+                    statistics["losses"] += 1
                 else:
                     result = 0x1
                     print(f"Result: Tie! Player: {player_total}, Dealer: {dealer_total}")
-                    stats["ties"] += 1
+                    statistics["ties"] += 1
 
             self.send_payload_result(conn, result)
             print(f"End of round {round_num}")
 
         print("\nAll rounds finished")
-        total_played = stats["wins"] + stats["losses"] + stats["ties"]
-        win_rate = stats["wins"] / total_played if total_played > 0 else 0
+        total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
+        win_rate = statistics["wins"] / total_played if total_played > 0 else 0
         print(f"Finished {total_played} rounds, win rate: {win_rate:.2f}")
 
     def start_dealer(self):

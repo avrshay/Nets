@@ -1,6 +1,8 @@
 import socket
 import struct
 
+from Cards import Card
+
 UDP_DEST_PORT = 13122  # The client needs to listen for the offer message on 13122 UDP port
 MAGIC_COOKIE = 0xabcddcba
 MSG_TYPE_OFFER = 0x2  # Offer
@@ -132,6 +134,103 @@ class Player:
             self.tcp_socket = None
             return None
 
+    def all_recv(self, n):
+        data = b''
+        while len(data) < n:
+            more = self.tcp_socket.recv(n - len(data))
+            if not more:
+                print("Connection closed before receiving full data")
+                return
+            data += more
+        return data
+
+
+    def send_decision(self, decision):
+        #Send Hittt or Stand
+        decision_bytes = decision.encode('utf-8').ljust(5, b'\x00')[:5]
+        packet = struct.pack('!I B 5s', MAGIC_COOKIE, MSG_TYPE_PAYLOAD, decision_bytes)
+        self.tcp_socket.sendall(packet)
+
+    def receive_payload(self):
+        #Receive payload from server (card or round result)
+        header = self.all_recv(6)  # 4+1+1 minimal
+        if not header or len(header) < 6:
+            return None
+        cookie, msg_type, result = struct.unpack('!I B B', header)
+        if msg_type != MSG_TYPE_PAYLOAD:
+            return None
+
+        # Card data: rank (2 bytes) + suit (1 byte)
+        card_data = self.all_recv(3)
+        rank, suit = struct.unpack('!H B', card_data)
+        card_get = Card(suit, rank)
+        return result, card_get
+
+    def play_game(self, rounds):
+        statistics = {"wins":0, "losses":0, "ties":0}
+        for round_num in range(1, rounds+1):
+            print(f"\n=== Starting round {round_num} ===")
+            player_total = 0
+            #receive cards
+            for i in range(0,2):
+                payload = self.receive_payload()
+                if not payload:
+                     break
+                result, card = payload
+                print(f"DEBUG: suit={card.suit}, rank={card.rank}")
+                print(f"You received card: {card.print_card()}")
+                player_total += card.get_value()
+
+            # dealer cards
+            payload = self.receive_payload()
+            if not payload:
+                break
+            result, card = payload
+            print(f"Dealer received card: {card.print_card()}")
+            flag=True
+            # Ask player decision
+            while flag:
+                move = input("Hit or Stand? ").strip()
+                if move.lower() == "hit":
+                    self.send_decision("Hittt")
+                    # wait for card
+                    payload = self.receive_payload()
+                    if not payload:
+                        return
+                    result, card = payload
+                    print(f"Received card: {card.print_card()}")
+                    player_total += card.get_value()
+                    if player_total>21:
+                        flag=False
+                elif move.lower() == "stand":
+                    self.send_decision("Stand")
+                    flag = False
+                else:
+                    continue
+
+            # round result from server
+            try:
+                header = self.all_recv(self.tcp_socket,6)
+                cookie, msg_type, result = struct.unpack('!I B B', header)
+                if result == 0x3:
+                    print("You win this round!")
+                    statistics["wins"] += 1
+                elif result == 0x2:
+                    print("You lose this round!")
+                    statistics["losses"] += 1
+                elif result == 0x1:
+                    print("Tie!")
+                    statistics["ties"] += 1
+            except:
+                return
+
+        # final Statistics
+        total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
+        print(f"\nGame Over: {total_played} rounds played")
+        print(f"Wins: {statistics['wins']}, Losses: {statistics['losses']}, Ties: {statistics['ties']}")
+        if total_played > 0:
+            print(f"Win rate: {statistics['wins']/total_played:.2f}")
+
 
 def main():
     """
@@ -161,38 +260,7 @@ def main():
     while True:
         if sock:
             # --- Game Loop ---
-            pass
-        else:
-            print("Failed to start game.")
-def main():
-    """
-        Main entry point for a new Client.
-        Parses user input, listens for server offers, and initiates the connection.
-    """
-    try:
-        user_input = input("Please enter the number of rounds to play: ")
-        rounds = int(user_input)
-
-        # Validity check (because the protocol limits to one byte, i.e. a maximum of 255)
-        if not (1 <= rounds <= 255):
-            print("Error: Rounds must be between 1 and 255.")
-            return
-
-    except ValueError:
-        print("Error: Please enter a valid integer number.")
-        return
-
-    player = Player()
-
-    # --- Step 1 ---
-    player.listen_for_offers()
-
-    # --- Step 3 ---
-    sock = player.initiate_game(rounds)
-    while True:
-        if sock:
-            # --- Game Loop ---
-            pass
+            player.play_game(rounds)
         else:
             print("Failed to start game.")
 
