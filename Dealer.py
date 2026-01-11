@@ -209,6 +209,7 @@ class Dealer:
 
         for round_num in range(1,rounds+1):
 
+            time.sleep(1)
             print(f"\n=== Starting round {round_num} ===")
 
             # Initial Deal - round 0:
@@ -227,13 +228,17 @@ class Dealer:
             self.send_payload_card(conn, 0x0,player_hand[1])
             self.send_payload_card(conn,0x0,self.dealer_hand[0])
 
+            player_total = sum([card.get_value() for card in player_hand])
             print(f"Player initial cards: {[c.print_card() for c in player_hand]}")
+            print(f"Player total: {player_total}")
             print(f"Dealer visible card: {self.dealer_hand[0].print_card()}")
+            print(f"Dealer invisible card: {self.dealer_hand[1].print_card()}")
+            print(f"Dealer total: {self.current_dealer_sum()}")
 
             #if self.current_dealer_sum() > 21:
             #    pass  # זה לא אמור להחשף עד תורו
-
-            while True:
+            flag=True
+            while flag:
                 # (Hittt / Stand)
                 try:
                     # checking fo new msg:
@@ -258,6 +263,7 @@ class Dealer:
 
                         if move == "Stand":
                             print(f"Player decision: {move}")
+                            flag=False
                             break
 
                         elif move == "Hittt":
@@ -266,19 +272,21 @@ class Dealer:
                             player_hand.append(new_card)
                             player_total = sum([c.get_value() for c in player_hand])
                             self.send_payload_card(conn, 0x0,new_card)
-                            print(f"Player received: {new_card.print_card()} , Total: {player_total}")
+                            print(f"Player received: {new_card.print_card()}")
+                            print(f"Player total: {player_total}")
                             if player_total > 21:
+
+                                flag = False
                                 break
 
-
                     else:
-                        print("Failed 1")
+                        print("Failed")
 
                 except Exception as e:
                     print(f"Error during player's turn: {e}")
                     return
 
-            time.sleep(2)
+            time.sleep(1)
             if player_total > 21:
                 print("Player busts! Dealer wins this round")
                 self.send_payload_result(conn, 0x2)  # player loss
@@ -286,14 +294,14 @@ class Dealer:
                 continue
             #dealer
             self.send_payload_card(conn,0x0,self.dealer_hand[1])
-            print(f"Dealer second hidden card: {self.dealer_hand[1].print_card()}")
-            dealer_total = sum([c.get_value() for c in self.dealer_hand])
+            dealer_total = self.current_dealer_sum()
             while dealer_total < 17:
                 new_card = self.deck.deal_one()
                 self.dealer_hand.append(new_card)
-                dealer_total = sum([c.get_value() for c in self.dealer_hand])
+                dealer_total = self.current_dealer_sum()
                 self.send_payload_card(conn, 0x0, new_card)
-                print(f"Dealer received: {new_card.print_card()} , Total: {dealer_total}")
+                print(f"Dealer received: {new_card.print_card()}")
+                print(f"Dealer total: {dealer_total}")
 
             # Deciding winner
             result=0x0

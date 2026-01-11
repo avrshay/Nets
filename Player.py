@@ -152,84 +152,130 @@ class Player:
         self.tcp_socket.sendall(packet)
 
     def receive_payload(self):
-        #Receive payload from server (card or round result)
-        header = self.all_recv(6)  # 4+1+1 minimal
+        # Receive payload from server (card or round result)
+        header = self.all_recv(6)  # 4 + 1 + 1
         if not header or len(header) < 6:
             return None
+
         cookie, msg_type, result = struct.unpack('!I B B', header)
         if msg_type != MSG_TYPE_PAYLOAD:
             return None
 
-        # Card data: rank (2 bytes) + suit (1 byte)
-        card_data = self.all_recv(3)
-        rank, suit = struct.unpack('!H B', card_data)
-        card_get = Card(suit, rank)
-        return result, card_get
+        if result == 0x0:
+            # Round not over → card is included
+            card_data = self.all_recv(3)
+            rank, suit = struct.unpack('!H B', card_data)
+            card = Card(suit, rank)
+            return result, card
+        else:
+            # Round over → no card
+            return result, None
 
     def play_game(self, rounds):
-        statistics = {"wins":0, "losses":0, "ties":0}
-        for round_num in range(1, rounds+1):
-            print(f"\n=== Starting round {round_num} ===")
-            player_total = 0
-            #receive cards
-            for i in range(0,2):
-                payload = self.receive_payload()
-                if not payload:
-                     break
-                result, card = payload
-                print(f"DEBUG: suit={card.suit}, rank={card.rank}")
-                print(f"You received card: {card.print_card()}")
-                player_total += card.get_value()
-
-            # dealer cards
-            payload = self.receive_payload()
-            if not payload:
-                break
-            result, card = payload
-            print(f"Dealer received card: {card.print_card()}")
-            flag=True
-            # Ask player decision
-            while flag:
-                move = input("Hit or Stand? ").strip()
-                if move.lower() == "hit":
-                    self.send_decision("Hittt")
-                    # wait for card
+        try:
+            statistics = {"wins":0, "losses":0, "ties":0}
+            for round_num in range(1, rounds+1):
+                print(f"\n=== Starting round {round_num} ===")
+                player_total = 0
+                dealer_total=0
+                # receive initial cards
+                for i in range(0, 2):
                     payload = self.receive_payload()
                     if not payload:
+                        print("Connection closed or invalid data")
                         return
                     result, card = payload
-                    print(f"Received card: {card.print_card()}")
-                    player_total += card.get_value()
-                    if player_total>21:
-                        flag=False
-                elif move.lower() == "stand":
-                    self.send_decision("Stand")
-                    flag = False
-                else:
-                    continue
+                    if card:
+                        print(f"You received card: {card.print_card()}")
+                        player_total += card.get_value()
+                        print(f"Your total: {player_total}")
 
-            # round result from server
-            try:
-                header = self.all_recv(self.tcp_socket,6)
-                cookie, msg_type, result = struct.unpack('!I B B', header)
-                if result == 0x3:
-                    print("You win this round!")
-                    statistics["wins"] += 1
-                elif result == 0x2:
-                    print("You lose this round!")
-                    statistics["losses"] += 1
-                elif result == 0x1:
-                    print("Tie!")
-                    statistics["ties"] += 1
-            except:
-                return
+                # dealer initial card
+                payload = self.receive_payload()
+                if not payload:
+                    print("Connection closed or invalid data")
+                    return
+                result, card = payload
+                if card:
+                    print(f"Dealer received card: {card.print_card()}")
+                    dealer_total += card.get_value()
+                    print(f"Dealer total: {dealer_total}")
 
-        # final Statistics
-        total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
-        print(f"\nGame Over: {total_played} rounds played")
-        print(f"Wins: {statistics['wins']}, Losses: {statistics['losses']}, Ties: {statistics['ties']}")
-        if total_played > 0:
-            print(f"Win rate: {statistics['wins']/total_played:.2f}")
+                flag = True
+                # Ask player decision
+                while flag:
+                    move = input("Hit or Stand? ").strip()
+                    if move.lower() == "hit":
+                        self.send_decision("Hittt")
+                        # wait for card
+                        payload = self.receive_payload()
+                        if not payload:
+                            return  # failed
+                        result, card = payload
+                        if card:
+                            print(f"Received card: {card.print_card()}")
+                            player_total += card.get_value()
+                            print(f"Your total: {player_total}")
+
+                        if player_total > 21:
+                            print("You went over 21! Bust!")
+                            payload = self.receive_payload()
+                            if not payload:
+                                return
+                            result, card = payload
+                            if result != 0x0:
+                                if result == 0x3:
+                                    print("You win this round!")
+                                    statistics["wins"] += 1
+                                elif result == 0x2:
+                                    print("You lose this round!")
+                                    statistics["losses"] += 1
+                                elif result == 0x1:
+                                    print("You ties this round!")
+                                    statistics["ties"] += 1
+                                flag=False
+                            break
+                    elif move.lower() == "stand":
+                        self.send_decision("Stand")
+                        while True:
+                            payload = self.receive_payload()
+                            if not payload:
+                                print("Connection closed or invalid data")
+                                return
+                            result, card = payload
+                            if card:
+                                print(f"Dealer received: {card.print_card()}")
+                                dealer_total += card.get_value()
+                                print(f"Dealer total: {dealer_total}")
+                            if result != 0x0:
+                                # round over
+                                if result == 0x3:
+                                    print("You win this round!")
+                                    statistics["wins"] += 1
+                                elif result == 0x2:
+                                    print("You lose this round!")
+                                    statistics["losses"] += 1
+                                elif result == 0x1:
+                                    print("You ties this round!")
+                                    statistics["ties"] += 1
+                                flag = False
+                                break
+                        break
+                    else:
+                        print("Please enter 'Hit' or 'Stand'.")
+                        continue
+
+                print(f"End of round {round_num}")
+
+            # final Statistics
+            total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
+            print(f"\nGame Over: {total_played} rounds played")
+            print(f"Wins: {statistics['wins']}, Losses: {statistics['losses']}, Ties: {statistics['ties']}")
+            if total_played > 0:
+                print(f"Win rate: {statistics['wins']/total_played:.2f}")
+
+        except KeyboardInterrupt:
+            print("\nKeyboard interrupt detected. Exiting.")
 
 
 def main():
@@ -237,32 +283,52 @@ def main():
         Main entry point for a new Client.
         Parses user input, listens for server offers, and initiates the connection.
     """
-    try:
-        user_input = input("Please enter the number of rounds to play: ")
-        rounds = int(user_input)
+    while True:
+        try:
+            user_input = input("Please enter the number of rounds to play: ")
+            rounds = int(user_input)
 
-        # Validity check (because the protocol limits to one byte, i.e. a maximum of 255)
-        if not (1 <= rounds <= 255):
-            print("Error: Rounds must be between 1 and 255.")
+            # Validity check (because the protocol limits to one byte, i.e. a maximum of 255)
+            if not (1 <= rounds <= 255):
+                print("Error: Rounds must be between 1 and 255.")
+                return
+
+        except ValueError:
+            print("Error: Please enter a valid integer number.")
             return
 
-    except ValueError:
-        print("Error: Please enter a valid integer number.")
-        return
+        except (KeyboardInterrupt, EOFError):
+            print("\nInput cancelled. Exiting cleanly.")
+            return
 
-    player = Player()
+        player = Player()
 
-    # --- Step 1 ---
-    player.listen_for_offers()
+        # --- Step 1 ---
+        player.listen_for_offers()
 
-    # --- Step 3 ---
-    sock = player.initiate_game(rounds)
-    while True:
+        # --- Step 3 ---
+        sock = player.initiate_game(rounds)
         if sock:
             # --- Game Loop ---
             player.play_game(rounds)
+
         else:
             print("Failed to start game.")
+
+        #   if want to play again
+        while True:
+            try:
+                again = input("\nDo you want to play again? (y/n): ").strip().lower()
+            except KeyboardInterrupt:
+                print("\nKeyboard interrupt detected. Exiting.")
+                return
+            if again == 'y':
+                break  # back to outer while loop
+            elif again == 'n':
+                print("Thanks for playing! Goodbye!")
+                return
+            else:
+                print("Please enter 'y' or 'n'.")
 
 
 if __name__ == "__main__":
