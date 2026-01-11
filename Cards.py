@@ -29,11 +29,29 @@ class Card:
                     int: The point value of the card.
         """
         if self.rank == 1:
-            return 11
+            return 1
         elif 11 <= self.rank <= 13:
             return 10
         else:
             return self.rank
+
+    def print_card(self):
+
+        description=""
+        if self.rank>=2 and self.rank<11:
+            description=description+f"{self.rank} "
+        elif self.rank==1:
+            description = description + "Ace "
+        elif self.rank == 11:
+            description = description + "Jack "
+        elif self.rank == 12:
+            description = description + "Queen "
+        else:
+            description = description + "King "
+        suits=["Hearts", "Diamonds", "Clubs", "Spades"]
+        description=description+suits[self.suit-1]
+        return description
+
 
 
 class Deck:
@@ -63,6 +81,7 @@ class Deck:
         for suit in suits:
             for rank in ranks:
                 self.cards.append(Card(suit, rank))
+
 
     def shuffle(self):
         """

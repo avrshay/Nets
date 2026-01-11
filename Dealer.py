@@ -127,9 +127,7 @@ class Dealer:
 
                     # step 4?
                     print("Welcome to the Game!")
-                    for round in range(1,rounds+1):
-                        print(f"---Round {round}---")
-                        self.play(conn)
+                    self.play(conn, rounds)
 
                 else:
                     print(f"Unknown message type: {msg_type}")
@@ -151,7 +149,31 @@ class Dealer:
             total_sum += card.get_value()
         return total_sum
 
-    def play(self, conn):
+    def send_payload_card(self, conn, result, card):
+        """
+        result: 0x0 / 0x1 / 0x2 / 0x3
+        card: Card object
+        """
+        packet = struct.pack(
+            '!I B B H B',
+            MAGIC_COOKIE,
+            MSG_TYPE_PAYLOAD,
+            result,
+            card.rank,
+            card.suit - 1
+        )
+        conn.sendall(packet)
+
+    def send_payload_result(self, conn, result):
+        packet = struct.pack(
+            '!I B B',
+            MAGIC_COOKIE,
+            MSG_TYPE_PAYLOAD,
+            result
+        )
+        conn.sendall(packet)
+
+    def play(self, conn,rounds):
         """
                 Manages the main game loop for a specific client connection.
 
@@ -165,65 +187,125 @@ class Dealer:
                 Args:
                     conn (socket.socket): The active TCP socket for communication.
         """
-        # Initial Deal - round 0:
-        self.deck = Deck()
-        self.deck.shuffle()
 
-        player_hand = []
+        #Statistics
+        stats = {
+            "wins": 0,
+            "losses": 0,
+            "ties": 0
+        }
 
-        player_hand.append(self.deck.deal_one())
-        self.dealer_hand.append(self.deck.deal_one())  # The player will see it
-        player_hand.append(self.deck.deal_one())
-        self.dealer_hand.append(self.deck.deal_one())  # The player cannot see it
+        for round_num in range(1,rounds+1):
 
-        #if self.current_dealer_sum() > 21:
-        #    pass  # זה לא אמור להחשף עד תורו
+            print(f"\n=== Starting round {round_num} ===")
 
-        while True:
+            # Initial Deal - round 0:
+            self.deck = Deck()
+            self.deck.shuffle()
 
-            # (Hittt / Stand)
-            try:
-                # checking fo new msg:
-                new_header = conn.recv(5)
+            player_hand = []
+            self.dealer_hand = []
 
-                if not new_header:
-                    print(f"Failed.")
-                    break
+            player_hand.append(self.deck.deal_one())
+            self.dealer_hand.append(self.deck.deal_one())  # The player will see it
+            player_hand.append(self.deck.deal_one())
+            self.dealer_hand.append(self.deck.deal_one())  # The player cannot see it
 
-                cookie, m_type = struct.unpack('!I B', new_header)
+            self.send_payload_card(conn, 0x0,player_hand[0])
+            self.send_payload_card(conn, 0x0,player_hand[1])
+            self.send_payload_card(conn,0x0,self.dealer_hand[0])
 
-                # Check the Magic Cookie:
-                if cookie != MAGIC_COOKIE:
-                    print(f"Invalid Cookie: {hex(cookie)}. Kicking player out!")
+            print(f"Player initial cards: {[c.print_card() for c in player_hand]}")
+            print(f"Dealer visible card: {self.dealer_hand[0].print_card()}")
+
+            #if self.current_dealer_sum() > 21:
+            #    pass  # זה לא אמור להחשף עד תורו
+
+            while True:
+                # (Hittt / Stand)
+                try:
+                    # checking fo new msg:
+                    new_header = conn.recv(5)
+
+                    if not new_header:
+                        print(f"Failed.")
+                        return
+
+                    cookie, m_type = struct.unpack('!I B', new_header)
+
+                    # Check the Magic Cookie:
+                    if cookie != MAGIC_COOKIE:
+                        print(f"Invalid Cookie: {hex(cookie)}. Kicking player out!")
+                        return
+
+                    if m_type == MSG_TYPE_PAYLOAD:
+
+                        decision_data = conn.recv(5)
+
+                        move = struct.unpack('!5s', decision_data)[0].decode('utf-8').strip()
+
+                        if move == "Stand":
+                            print(f"Player decision: {move}")
+                            break
+
+                        elif move == "Hittt":
+                            print(f"Player decision: {move}")
+                            new_card = self.deck.deal_one()
+                            player_hand.append(new_card)
+                            player_total = sum([c.get_value() for c in player_hand])
+                            self.send_payload_card(conn, 0x0,new_card)
+                            print(f"Player received: {new_card.print_card()} , Total: {player_total}")
+                            if player_total > 21:
+                                print("Player busts! Dealer wins this round")
+                                self.send_payload_result(conn, 0x2) #player loss
+                                stats["losses"] += 1
+                                break
+
+                    else:
+                        print("Failed 1")
+
+                except Exception as e:
+                    print(f"Error during player's turn: {e}")
                     return
 
-                if m_type == MSG_TYPE_PAYLOAD:
+            #dealer
+            self.send_payload_card(conn,0x0,self.dealer_hand[1])
+            print(f"Dealer second hidden card: {self.dealer_hand[1].print_card()}")
+            dealer_total = sum([c.get_value() for c in self.dealer_hand])
+            while dealer_total < 17:
+                new_card = self.deck.deal_one()
+                self.dealer_hand.append(new_card)
+                dealer_total = sum([c.get_value() for c in self.dealer_hand])
+                self.send_payload_card(conn, 0x0, new_card)
+                print(f"Dealer received: {new_card.print_card()} , Total: {dealer_total}")
 
-                    decision_data = conn.recv(5)
-
-                    move = struct.unpack('!5s', decision_data)[0].decode('utf-8')
-
-                    print(f"Player Move: {move}")
-
-                    if move == "Stand":
-
-                        # דילר משחק, מחשבים מנצח, שולחים תוצאה ויוצאים מהלולאה (לסיבוב הבא)
-
-                        break
-
-                    elif move == "Hittt":
-
-                        # דילר שולח עוד קלף וחוזרים לתחילת הלולאה
-
-                        pass
-
+            # Deciding winner
+            result=0x0
+            if dealer_total > 21:
+                result = 0x3
+                print("Result: Dealer busts, player wins.")
+                stats["wins"] += 1
+            else:
+                if player_total > dealer_total:
+                    result = 0x3
+                    print("Result: Player has higher total, wins.")
+                    stats["wins"] += 1
+                elif dealer_total > player_total:
+                    result = 0x2
+                    print("Result: Dealer has higher total, player loses.")
+                    stats["losses"] += 1
                 else:
-                    print("Failed 1")
+                    result = 0x1
+                    print(f"Result: Tie! Player: {player_total}, Dealer: {dealer_total}")
+                    stats["ties"] += 1
 
-            except Exception as e:
-                print(e)
-                break
+            self.send_payload_result(conn, result)
+            print(f"End of round {round_num}")
 
+        print("\nAll rounds finished")
+        total_played = stats["wins"] + stats["losses"] + stats["ties"]
+        win_rate = stats["wins"] / total_played if total_played > 0 else 0
+        print(f"Finished {total_played} rounds, win rate: {win_rate:.2f}")
 
     def start_dealer(self):
         """
