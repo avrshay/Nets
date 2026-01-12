@@ -175,19 +175,16 @@ class Player:
             return None
 
         card = None
-        if msg_type != 0x4:
+        if msg_type != 0x4:  # not payload
             print("Move is unfamiliar")
             return None
 
-        if result == 0x0:
-            # Round not over → card is included
-            card_data = self.all_recv(3)
-            rank, suit = struct.unpack('!H B', card_data)
-            card = Card(suit, rank)
-            return result, card
-        else:
-            # Round over → no card
-            return result, None
+        # Round not over → card is included
+        card_data = self.all_recv(3)
+        rank, suit = struct.unpack('!H B', card_data)
+        card = Card(suit, rank)
+        return result, card
+
 
     def play_game(self, rounds):
         try:
@@ -261,7 +258,7 @@ class Player:
                                 print(f"For {TEAM_NAME} connection closed or invalid data")
                                 return
                             result, card = payload
-                            if card:
+                            if card.suit != 0:
                                 print(f"Dealer received: {card.print_card()}")
                                 dealer_total += card.get_value()
                                 print(f"Dealer total: {dealer_total}")
@@ -287,7 +284,7 @@ class Player:
 
             # final Statistics
             total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
-            print(f"\n {TEAM_NAME} - Game Over: {total_played} rounds played")
+            print(f"\n{TEAM_NAME} - Game Over: {total_played} rounds played")
             print(f"Wins: {statistics['wins']}, Losses: {statistics['losses']}, Ties: {statistics['ties']}")
             if total_played > 0:
                 print(f"Win rate: {statistics['wins'] / total_played:.2f}")

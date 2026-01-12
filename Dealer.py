@@ -322,7 +322,7 @@ class Dealer:
             time.sleep(1)
             if player_total > 21:
                 print(f"{team} busts! Dealer wins this round")
-                self.send_payload_result(conn, 0x2)  # player loss
+                self.send_payload_card(conn, 0x2,Card(0,0))  # player loss
                 statistics["losses"] += 1
                 continue
             # dealer
@@ -345,7 +345,7 @@ class Dealer:
             else:
                 if player_total > dealer_total:
                     result = 0x3
-                    print(f"Result: {team} has higher total, wins.")
+                    print(f"Result: {team} has higher total, {team} wins.")
                     statistics["wins"] += 1
                 elif dealer_total > player_total:
                     result = 0x2
@@ -356,7 +356,7 @@ class Dealer:
                     print(f"Result: Tie! {team}: {player_total}, Dealer: {dealer_total}")
                     statistics["ties"] += 1
 
-            self.send_payload_result(conn, result)
+            self.send_payload_card(conn, result,Card(0,0))
             print(f"End of round {round_num} for {team}")
 
         print(f"\n{team} - All rounds finished")
