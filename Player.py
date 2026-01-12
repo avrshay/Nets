@@ -8,7 +8,7 @@ MAGIC_COOKIE = 0xabcddcba
 MSG_TYPE_OFFER = 0x2  # Offer
 MSG_TYPE_REQUEST = 0x3  # request
 MSG_TYPE_PAYLOAD = 0x4  # payload
-TEAM_NAME = "WeNeedToChooseName"
+TEAM_NAME = "JackWho"
 
 """
 The Handshake:
@@ -26,6 +26,7 @@ class Player:
     """
         Represents a Player in the Blackjack game.
     """
+
     def __init__(self):
         """
                 Initializes the Player instance with default values.
@@ -47,8 +48,8 @@ class Player:
         udp_sock.bind(("", UDP_DEST_PORT))
 
         # Get an offer- a message contains the port on which it is listening on TCP.
-        while True:
-            try:
+        try:
+            while True:
                 #  getting the data and the info of the dealer
                 data, addr = udp_sock.recvfrom(1024)  # set capacity to 1024 B
                 server_ip = addr[0]
@@ -66,22 +67,25 @@ class Player:
 
                 #  (Validation)
                 if cookie != MAGIC_COOKIE:
+                    print(f"MAGIC COOKIE is wrong")
                     continue
 
                 if msg_type != MSG_TYPE_OFFER:
+                    print(f"TYPE is unfamiliar")
                     continue
 
-                print(f"Received offer from {server_ip}, attempting to connect on TCP port {server_tcp_port}...")
+                print(f"{TEAM_NAME} Received offer from {server_ip}, attempting to connect on TCP port {server_tcp_port}...")
                 self.server_ip = server_ip
                 self.server_tcp_port = server_tcp_port
                 break
 
-            except Exception as e:
-                print(f"Error receiving UDP packet: {e}")
+        except Exception as e:
+            print(f"{TEAM_NAME} has error receiving UDP packet: {e}")
 
-            finally:
-                # Always close the UDP socket when done (or if an error crashed the outer logic)
-                udp_sock.close()
+        finally:
+            # Always close the UDP socket when done (or if an error crashed the outer logic)
+            udp_sock.close()
+            print(f"{TEAM_NAME}'s UDP socket closed.")
 
     # step 3:
     def initiate_game(self, rounds):  # request - also broadcast
@@ -97,7 +101,7 @@ class Player:
         """
         #  The client accepts the Offer and want to initiate a TCP connection.
         if not self.server_ip or not self.server_tcp_port:
-            print("Error: No server info found.")
+            print(f"{TEAM_NAME} has error: No server info found.")
             return None
 
         try:
@@ -106,7 +110,7 @@ class Player:
 
             # Connect:
             self.tcp_socket.connect((self.server_ip, self.server_tcp_port))
-            print("Connected successfully via TCP!")
+            print(f"{TEAM_NAME} connected successfully via TCP!")
 
             # Sending a request to join
 
@@ -130,23 +134,29 @@ class Player:
 
         except Exception as e:
 
-            print(f"Failed to connect via TCP: {e}")
+            print(f"{TEAM_NAME} failed to connect via TCP: {e}")
             self.tcp_socket = None
             return None
 
     def all_recv(self, n):
         data = b''
-        while len(data) < n:
-            more = self.tcp_socket.recv(n - len(data))
-            if not more:
-                print("Connection closed before receiving full data")
-                return
-            data += more
-        return data
-
+        try:
+            while len(data) < n:
+                more = self.tcp_socket.recv(n - len(data))
+                if not more:
+                    print(f"{TEAM_NAME} connection closed before receiving full data")
+                    return
+                data += more
+            return data
+        except ConnectionResetError:
+            print(f"\n{TEAM_NAME} connection was forcibly closed by the dealer (Error 10054).")
+            return None
+        except Exception as e:
+            print(f"\n[{TEAM_NAME}] Unexpected error during receive: {e}")
+            return None
 
     def send_decision(self, decision):
-        #Send Hittt or Stand
+        # Send Hittt or Stand
         decision_bytes = decision.encode('utf-8').ljust(5, b'\x00')[:5]
         packet = struct.pack('!I B 5s', MAGIC_COOKIE, MSG_TYPE_PAYLOAD, decision_bytes)
         self.tcp_socket.sendall(packet)
@@ -155,10 +165,18 @@ class Player:
         # Receive payload from server (card or round result)
         header = self.all_recv(6)  # 4 + 1 + 1
         if not header or len(header) < 6:
+            print("The dealer kick you out!")
             return None
 
         cookie, msg_type, result = struct.unpack('!I B B', header)
-        if msg_type != MSG_TYPE_PAYLOAD:
+
+        if cookie != MAGIC_COOKIE:
+            print("Error: Invalid magic cookie in payload")
+            return None
+
+        card = None
+        if msg_type != 0x4:
+            print("Move is unfamiliar")
             return None
 
         if result == 0x0:
@@ -173,16 +191,16 @@ class Player:
 
     def play_game(self, rounds):
         try:
-            statistics = {"wins":0, "losses":0, "ties":0}
-            for round_num in range(1, rounds+1):
-                print(f"\n=== Starting round {round_num} ===")
+            statistics = {"wins": 0, "losses": 0, "ties": 0}
+            for round_num in range(1, rounds + 1):
+                print(f"\n=== {TEAM_NAME} starting round {round_num} ===")
                 player_total = 0
-                dealer_total=0
+                dealer_total = 0
                 # receive initial cards
                 for i in range(0, 2):
                     payload = self.receive_payload()
                     if not payload:
-                        print("Connection closed or invalid data")
+                        print(f"For {TEAM_NAME} game aborted.")
                         return
                     result, card = payload
                     if card:
@@ -193,7 +211,7 @@ class Player:
                 # dealer initial card
                 payload = self.receive_payload()
                 if not payload:
-                    print("Connection closed or invalid data")
+                    print(f"For {TEAM_NAME} Connection closed or invalid data")
                     return
                 result, card = payload
                 if card:
@@ -204,7 +222,7 @@ class Player:
                 flag = True
                 # Ask player decision
                 while flag:
-                    move = input("Hit or Stand? ").strip()
+                    move = input("Hit or Stand? ").strip().lower()
                     if move.lower() == "hit":
                         self.send_decision("Hittt")
                         # wait for card
@@ -233,14 +251,14 @@ class Player:
                                 elif result == 0x1:
                                     print("You ties this round!")
                                     statistics["ties"] += 1
-                                flag=False
+                                flag = False
                             break
                     elif move.lower() == "stand":
                         self.send_decision("Stand")
                         while True:
                             payload = self.receive_payload()
                             if not payload:
-                                print("Connection closed or invalid data")
+                                print(f"For {TEAM_NAME} connection closed or invalid data")
                                 return
                             result, card = payload
                             if card:
@@ -262,17 +280,17 @@ class Player:
                                 break
                         break
                     else:
-                        print("Please enter 'Hit' or 'Stand'.")
+                        print(f"{TEAM_NAME} please enter 'Hit' or 'Stand'.")
                         continue
 
                 print(f"End of round {round_num}")
 
             # final Statistics
             total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
-            print(f"\nGame Over: {total_played} rounds played")
+            print(f"\n {TEAM_NAME} - Game Over: {total_played} rounds played")
             print(f"Wins: {statistics['wins']}, Losses: {statistics['losses']}, Ties: {statistics['ties']}")
             if total_played > 0:
-                print(f"Win rate: {statistics['wins']/total_played:.2f}")
+                print(f"Win rate: {statistics['wins'] / total_played:.2f}")
 
         except KeyboardInterrupt:
             print("\nKeyboard interrupt detected. Exiting.")
@@ -284,22 +302,23 @@ def main():
         Parses user input, listens for server offers, and initiates the connection.
     """
     while True:
-        try:
-            user_input = input("Please enter the number of rounds to play: ")
-            rounds = int(user_input)
+        while True:
+            try:
+                user_input = input(f"{TEAM_NAME} please enter the number of rounds to play: ")
+                rounds = int(user_input)
 
-            # Validity check (because the protocol limits to one byte, i.e. a maximum of 255)
-            if not (1 <= rounds <= 255):
-                print("Error: Rounds must be between 1 and 255.")
+                if not (1 <= rounds <= 255):
+                    # Validity check (because the protocol limits to one byte, i.e. a maximum of 255)
+                    print(f"{TEAM_NAME} - Error: Rounds must be between 1 and 255.")
+                else:
+                    break  # input ok - skip next
+
+            except ValueError:
+                print(f"{TEAM_NAME} - Error: Please enter a valid integer number.")
+
+            except (KeyboardInterrupt, EOFError):
+                print("\nExiting.")
                 return
-
-        except ValueError:
-            print("Error: Please enter a valid integer number.")
-            return
-
-        except (KeyboardInterrupt, EOFError):
-            print("\nInput cancelled. Exiting cleanly.")
-            return
 
         player = Player()
 
@@ -313,22 +332,22 @@ def main():
             player.play_game(rounds)
 
         else:
-            print("Failed to start game.")
+            print(f"{TEAM_NAME} - Failed to start game.")
 
-        #   if want to play again
+        # If he wants to play again
         while True:
             try:
-                again = input("\nDo you want to play again? (y/n): ").strip().lower()
+                again = input(f" \n{TEAM_NAME} do you want to play again? (y/n): ").strip().lower()
             except KeyboardInterrupt:
                 print("\nKeyboard interrupt detected. Exiting.")
                 return
             if again == 'y':
                 break  # back to outer while loop
             elif again == 'n':
-                print("Thanks for playing! Goodbye!")
+                print(f"Thanks for playing {TEAM_NAME}! Goodbye!")
                 return
             else:
-                print("Please enter 'y' or 'n'.")
+                print(f"{TEAM_NAME} please enter 'y' or 'n'.")
 
 
 if __name__ == "__main__":

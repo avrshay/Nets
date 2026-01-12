@@ -29,6 +29,7 @@ class Dealer:
     """
         Represents the Dealer in the Blackjack game.
         """
+
     def __init__(self):
         """
              Initializes the Dealer instance.
@@ -36,8 +37,7 @@ class Dealer:
         self.server_ip = None
         self.server_tcp_port = None
         self.tcp_socket = None
-        self.deck = None
-        self.dealer_hand = []
+
 
     # step 2:
     def broadcast_offers(self, server_port):  # offer - The client is generally a "UDP server" (listener), and the
@@ -94,10 +94,17 @@ class Dealer:
             Returns:
                 None
         """
+        team_name = "Unknown"
         with conn:
             try:
                 # header = magic cookie 4 + type 1 = 5
-                header_data = conn.recv(5)
+                conn.settimeout(60.0)
+
+                header_data = self.all_recv(conn, 5)
+
+                if header_data is None:
+                    print("Connection lost while waiting for header.")
+                    return None
 
                 if len(header_data) < 5:
                     print("Packet too short, closing connection.")
@@ -115,7 +122,11 @@ class Dealer:
                 # check the type:
                 if msg_type == MSG_TYPE_REQUEST:
 
-                    remaining_data = conn.recv(33)
+                    remaining_data = self.all_recv(conn, 33)
+                    if remaining_data is None:
+                        print("Connection lost while waiting for header.")
+                        return None
+
                     if len(remaining_data) < 33:
                         print("Incomplete request packet")
                         return
@@ -125,19 +136,24 @@ class Dealer:
 
                     print(f"{team_name} connected requesting {rounds} rounds.")
 
-                    # step 4?
-                    print("Welcome to the Game!")
-                    self.play(conn, rounds)
+                    # step 4
+                    print(f"Welcome to the Game {team_name}!")
+                    self.play(conn, rounds, team_name)
 
                 else:
                     print(f"Unknown message type: {msg_type}")
 
+            except socket.timeout:
+                print(f" {team_name} it's been over a minute since you responded, are you cheating?! I'm kicking you "
+                      f"out!")
+
             except Exception as e:
                 print(f"Error handling player {addr}: {e}")
 
-        print(f"Connection with {addr} closed.")
 
-    def current_dealer_sum(self):
+        print(f"Connection with {team_name} closed.")
+
+    def current_dealer_sum(self,dealer_hand):
         """
                 Calculates the total value of the cards currently in the dealer's hand.
 
@@ -145,19 +161,25 @@ class Dealer:
                     int: The cur sum of the card values.
          """
         total_sum = 0
-        for card in self.dealer_hand:
+        for card in dealer_hand:
             total_sum += card.get_value()
         return total_sum
 
-    def all_recv(self,sock, n):
+    def all_recv(self, sock, n):
         data = b''
-        while len(data) < n:
-            more = sock.recv(n - len(data))
-            if not more:
-                print("Connection closed before receiving full data")
-                return
-            data += more
-        return data
+        try:
+            while len(data) < n:
+                more = sock.recv(n - len(data))
+                if not more:
+                    print("Connection closed before receiving full data")
+                    return
+                data += more
+            return data
+        except (ConnectionResetError, ConnectionAbortedError):
+            return None
+        except Exception as e:
+            print(f"Unexpected error during recv: {e}")
+            return None
 
     def send_payload_card(self, conn, result, card):
         """
@@ -183,9 +205,7 @@ class Dealer:
         )
         conn.sendall(packet)
 
-
-
-    def play(self, conn,rounds):
+    def play(self, conn, rounds, team):
         """
                 Manages the main game loop for a specific client connection.
 
@@ -200,52 +220,51 @@ class Dealer:
                     conn (socket.socket): The active TCP socket for communication.
         """
 
-        #Statistics
+        # Statistics
         statistics = {
             "wins": 0,
             "losses": 0,
             "ties": 0
         }
 
-        for round_num in range(1,rounds+1):
+        for round_num in range(1, rounds + 1):
 
             time.sleep(1)
-            print(f"\n=== Starting round {round_num} ===")
+            print(f"\n==={team} starting round {round_num} ===")
 
             # Initial Deal - round 0:
-            self.deck = Deck()
-            self.deck.shuffle()
+            deck = Deck()  # Deck to each thread
+            deck.shuffle()
 
             player_hand = []
-            self.dealer_hand = []
+            dealer_hand = []
 
-            player_hand.append(self.deck.deal_one())
-            self.dealer_hand.append(self.deck.deal_one())  # The player will see it
-            player_hand.append(self.deck.deal_one())
-            self.dealer_hand.append(self.deck.deal_one())  # The player cannot see it
+            player_hand.append(deck.deal_one())
+            dealer_hand.append(deck.deal_one())  # The player will see it
+            player_hand.append(deck.deal_one())
+            dealer_hand.append(deck.deal_one())  # The player cannot see it
 
-            self.send_payload_card(conn, 0x0,player_hand[0])
-            self.send_payload_card(conn, 0x0,player_hand[1])
-            self.send_payload_card(conn,0x0,self.dealer_hand[0])
+            self.send_payload_card(conn, 0x0, player_hand[0])
+            self.send_payload_card(conn, 0x0, player_hand[1])
+            self.send_payload_card(conn, 0x0, dealer_hand[0])
 
             player_total = sum([card.get_value() for card in player_hand])
-            print(f"Player initial cards: {[c.print_card() for c in player_hand]}")
-            print(f"Player total: {player_total}")
-            print(f"Dealer visible card: {self.dealer_hand[0].print_card()}")
-            print(f"Dealer invisible card: {self.dealer_hand[1].print_card()}")
-            print(f"Dealer total: {self.current_dealer_sum()}")
+            print(f"{team} initial cards: {[c.print_card() for c in player_hand]}")
+            print(f"{team} total: {player_total}")
+            print(f"Dealer that play with {team} visible card: {dealer_hand[0].print_card()}")
+            print(f"Dealer that play with {team} invisible card: {dealer_hand[1].print_card()}")
+            print(f"Dealer that play with {team} total: {self.current_dealer_sum(dealer_hand)}")
 
-            #if self.current_dealer_sum() > 21:
-            #    pass  # זה לא אמור להחשף עד תורו
-            flag=True
+            flag = True
             while flag:
+                conn.settimeout(60.0)
                 # (Hittt / Stand)
                 try:
                     # checking fo new msg:
-                    new_header = self.all_recv(conn,5)
+                    new_header = self.all_recv(conn, 5)
 
                     if not new_header:
-                        print(f"Failed.")
+                        print(f"Connection lost with {team}. Closing session.")
                         return
 
                     cookie, m_type = struct.unpack('!I B', new_header)
@@ -255,81 +274,95 @@ class Dealer:
                         print(f"Invalid Cookie: {hex(cookie)}. Kicking player out!")
                         return
 
-                    if m_type == MSG_TYPE_PAYLOAD:
+                    if m_type != MSG_TYPE_PAYLOAD:
+                        print(
+                            f"Protocol Error: Received MSG_TYPE {hex(m_type)} instead of 0x4 from {team}. Kicking player out!")
+                        return
 
-                        decision_data = self.all_recv(conn,5)
+                    else:
+
+                        decision_data = self.all_recv(conn, 5)
+
+                        if not decision_data:
+                            print(f"Failed to receive move content from {team}.")
+                            return
 
                         move = struct.unpack('!5s', decision_data)[0].decode('utf-8').strip()
 
                         if move == "Stand":
-                            print(f"Player decision: {move}")
-                            flag=False
+                            print(f"{team} decision: {move}")
+                            flag = False
                             break
 
                         elif move == "Hittt":
                             print(f"Player decision: {move}")
-                            new_card = self.deck.deal_one()
+                            new_card = deck.deal_one()
                             player_hand.append(new_card)
                             player_total = sum([c.get_value() for c in player_hand])
-                            self.send_payload_card(conn, 0x0,new_card)
-                            print(f"Player received: {new_card.print_card()}")
-                            print(f"Player total: {player_total}")
+                            self.send_payload_card(conn, 0x0, new_card)
+                            print(f"{team} received: {new_card.print_card()}")
+                            print(f"{team} total: {player_total}")
                             if player_total > 21:
 
                                 flag = False
                                 break
 
-                    else:
-                        print("Failed")
+                        else:
+                            print(
+                                f"Illogical move received: '{move}' from {team}. Protocol violation! Kicking player out.")
+                            return
+                except socket.timeout:
+                    print(f"{team} took too long to respond this turn! Kicking out.")
+                    return
 
                 except Exception as e:
-                    print(f"Error during player's turn: {e}")
+                    print(f"Error during {team}'s turn: {e}")
                     return
 
             time.sleep(1)
             if player_total > 21:
-                print("Player busts! Dealer wins this round")
+                print(f"{team} busts! Dealer wins this round")
                 self.send_payload_result(conn, 0x2)  # player loss
                 statistics["losses"] += 1
                 continue
-            #dealer
-            self.send_payload_card(conn,0x0,self.dealer_hand[1])
-            dealer_total = self.current_dealer_sum()
+            # dealer
+            self.send_payload_card(conn, 0x0, dealer_hand[1])
+            dealer_total = self.current_dealer_sum(dealer_hand)
             while dealer_total < 17:
-                new_card = self.deck.deal_one()
-                self.dealer_hand.append(new_card)
-                dealer_total = self.current_dealer_sum()
+                new_card = deck.deal_one()
+                dealer_hand.append(new_card)
+                dealer_total = self.current_dealer_sum(dealer_hand)
                 self.send_payload_card(conn, 0x0, new_card)
-                print(f"Dealer received: {new_card.print_card()}")
-                print(f"Dealer total: {dealer_total}")
+                print(f"Dealer that play with {team}received: {new_card.print_card()}")
+                print(f"Dealer that play with {team} total: {dealer_total}")
 
             # Deciding winner
-            result=0x0
+            result = 0x0
             if dealer_total > 21:
                 result = 0x3
-                print("Result: Dealer busts, player wins.")
+                print(f"Result: Dealer busts, {team} wins.")
                 statistics["wins"] += 1
             else:
                 if player_total > dealer_total:
                     result = 0x3
-                    print("Result: Player has higher total, wins.")
+                    print(f"Result: {team} has higher total, wins.")
                     statistics["wins"] += 1
                 elif dealer_total > player_total:
                     result = 0x2
-                    print("Result: Dealer has higher total, player loses.")
+                    print(f"Result: Dealer has higher total, {team} loses.")
                     statistics["losses"] += 1
                 else:
                     result = 0x1
-                    print(f"Result: Tie! Player: {player_total}, Dealer: {dealer_total}")
+                    print(f"Result: Tie! {team}: {player_total}, Dealer: {dealer_total}")
                     statistics["ties"] += 1
 
             self.send_payload_result(conn, result)
-            print(f"End of round {round_num}")
+            print(f"End of round {round_num} for {team}")
 
-        print("\nAll rounds finished")
+        print(f"\n{team} - All rounds finished")
         total_played = statistics["wins"] + statistics["losses"] + statistics["ties"]
         win_rate = statistics["wins"] / total_played if total_played > 0 else 0
-        print(f"Finished {total_played} rounds, win rate: {win_rate:.2f}")
+        print(f"{team} finished {total_played} rounds, win rate: {win_rate:.2f}")
 
     def start_dealer(self):
         """

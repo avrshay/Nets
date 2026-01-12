@@ -5,6 +5,7 @@ class Card:
     """
         Represents a single playing card in a standard 52-card deck.
     """
+
     def __init__(self, suit, rank):
         """
                 Initializes a new Card instance.
@@ -21,7 +22,7 @@ class Card:
                 Calculates the Blackjack value of the card.
 
                 Rules:
-                - Ace (1): Returns 11
+                - Ace (1): Returns 1
                 - Face cards (11, 12, 13): Return 10.
                 - Number cards (2-10): Return their face value.
 
@@ -37,10 +38,10 @@ class Card:
 
     def print_card(self):
 
-        description=""
-        if self.rank>=2 and self.rank<11:
-            description=description+f"{self.rank} "
-        elif self.rank==1:
+        description = ""
+        if 2 <= self.rank < 11:
+            description = description + f"{self.rank} "
+        elif self.rank == 1:
             description = description + "Ace "
         elif self.rank == 11:
             description = description + "Jack "
@@ -48,16 +49,16 @@ class Card:
             description = description + "Queen "
         else:
             description = description + "King "
-        suits=["Hearts", "Diamonds", "Clubs", "Spades"]
-        description=description+suits[self.suit-1]
+        suits = ["Hearts", "Diamonds", "Clubs", "Spades"]
+        description = description + suits[self.suit - 1]
         return description
-
 
 
 class Deck:
     """
         Represents a standard deck of 52 playing cards.
     """
+
     def __init__(self):
         """
                 Initializes a new Deck.
@@ -82,7 +83,6 @@ class Deck:
             for rank in ranks:
                 self.cards.append(Card(suit, rank))
 
-
     def shuffle(self):
         """
                 Randomizes the order of the cards in the deck.
@@ -95,9 +95,12 @@ class Deck:
 
                 Returns:
                     Card: The card object that was removed.
-                    None: If the deck is empty.
+                    If the deck was empty - create new one
         """
         if len(self.cards) > 0:
             return self.cards.pop()
         else:
-            return None  # או לערבב מחדש אם נגמרו הקלפים
+            # create new deck
+            self.build_deck()
+            self.shuffle()
+            return self.cards.pop()
