@@ -196,14 +196,6 @@ class Dealer:
         )
         conn.sendall(packet)
 
-    def send_payload_result(self, conn, result):
-        packet = struct.pack(
-            '!I B B',
-            MAGIC_COOKIE,
-            MSG_TYPE_PAYLOAD,
-            result
-        )
-        conn.sendall(packet)
 
     def play(self, conn, rounds, team):
         """
